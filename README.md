@@ -62,7 +62,7 @@ vision 工具调用视觉 API 返回图片描述
 ## 前置要求
 
 - [OpenCode](https://github.com/opencode-ai/opencode) 已安装
-- 一个兼容 OpenAI 格式的视觉 API（如阿里云 DashScope 通义千问等）
+- 一个支持视觉识别的 API（兼容 OpenAI Chat Completions 格式，或 MiniMax VLM 接口）
 - 环境变量（建议配置到系统级，避免每次启动重复输入）
 
 ## 环境变量
@@ -70,28 +70,53 @@ vision 工具调用视觉 API 返回图片描述
 | 变量               | 说明                                   | 示例值                                                        |
 | ------------------ | -------------------------------------- | ------------------------------------------------------------- |
 | `VISION_API_KEY`   | 视觉 API 的密钥                        | `sk-your-api-key`                                              |
-| `VISION_API_URL`   | 视觉 API 的基础地址<br>（工具自动补全 `/chat/completions`） | `https://your-api-endpoint/v1`                |
-| `VISION_MODEL`     | 视觉模型名称                           | `your-vision-model`                                            |
+| `VISION_API_URL`   | 视觉 API 的基础地址                     | `https://your-api-endpoint/v1`                                 |
+| `VISION_MODEL`     | 视觉模型名称<br>（MiniMax 无需设置）    | `your-vision-model`                                            |
+| `VISION_API_TYPE`  | 可选，强制指定 API 类型<br>`openai` / `minimax` | `minimax`                                           |
 
-### Windows 系统级配置
+> `VISION_API_URL`：OpenAI 兼容接口会自动补全 `/chat/completions`；MiniMax 会自动使用 `/v1/coding_plan/vlm` 端点。
+>
+> `VISION_API_TYPE`：默认自动检测（URL 含 `minimax` 自动切换），设此变量可显式指定。
 
+### 示例一：OpenAI 兼容接口（如阿里云 DashScope 通义千问）
+
+**Windows 系统级配置：**
 ```powershell
 [System.Environment]::SetEnvironmentVariable('VISION_API_KEY', 'sk-your-api-key', 'User')
 [System.Environment]::SetEnvironmentVariable('VISION_API_URL', 'https://your-api-endpoint/v1', 'User')
 [System.Environment]::SetEnvironmentVariable('VISION_MODEL', 'your-vision-model', 'User')
 ```
 
-设置后**重启终端**生效。
-
-### macOS / Linux
-
-在 `~/.zshrc` 或 `~/.bashrc` 中添加：
-
+**macOS / Linux：**
 ```bash
 export VISION_API_KEY="sk-your-api-key"
 export VISION_API_URL="https://your-api-endpoint/v1"
 export VISION_MODEL="your-vision-model"
 ```
+
+### 示例二：MiniMax VLM
+
+MiniMax 的 VLM 接口属于 **Token Plan** 服务，需要使用具备 Token Plan 访问权限的 API Key（Group API Key），而非普通的 Chat API Key。
+
+> 如何获取：登录 [MiniMax 平台](https://platform.minimaxi.com) → Token Plan → 创建/查看 Group API Key。
+
+**Windows 系统级配置：**
+```powershell
+[System.Environment]::SetEnvironmentVariable('VISION_API_KEY', 'your-minimax-group-api-key', 'User')
+[System.Environment]::SetEnvironmentVariable('VISION_API_URL', 'https://api.minimax.chat', 'User')
+REM VISION_MODEL 不需要设置，MiniMax 自动识别
+```
+
+**macOS / Linux：**
+```bash
+export VISION_API_KEY="your-minimax-group-api-key"
+export VISION_API_URL="https://api.minimax.chat"
+# VISION_MODEL 不需要设置，MiniMax 自动识别
+```
+
+> 提示：MiniMax VLM 接口地址与 Chat 模型接口不同，请使用 `https://api.minimax.chat`。
+
+设置后**重启终端**生效。
 
 ## 安装
 
@@ -157,7 +182,7 @@ opencode-vision/
 
 - 读取本地图片文件，通过视觉 API 识别内容
 - 支持 `path`（单图）和 `paths`（多图数组）两个参数
-- 兼容 OpenAI Chat Completions 格式的 API
+- 支持两种后端：OpenAI Chat Completions 格式 / MiniMax VLM（自动检测）
 
 ### 插件：`plugins/vision-helper.ts`
 
@@ -176,12 +201,28 @@ opencode-vision/
 
 ## 自定义视觉 API
 
-本工具兼容任何 OpenAI Chat Completions 格式的视觉 API。只需更换环境变量即可：
+本工具支持两种后端，自动检测或显式指定。
+
+### OpenAI Chat Completions 格式
+
+兼容任何 OpenAI Chat Completions 格式的视觉 API：
 
 ```powershell
 $env:VISION_API_KEY = 'sk-your-api-key'
 $env:VISION_API_URL = 'https://your-api-endpoint/v1'
 $env:VISION_MODEL = 'your-vision-model'
+```
+
+### MiniMax VLM
+
+工具自动检测 URL 是否含 `minimax`/`minimaxi`，自动切换为 MiniMax VLM 接口。也可通过 `VISION_API_TYPE=minimax` 强制指定。
+
+> ⚠️ 需要具备 **Token Plan** 权限的 Group API Key。普通 Chat API Key 无法使用。
+
+```powershell
+$env:VISION_API_KEY = 'your-minimax-group-api-key'
+$env:VISION_API_URL = 'https://api.minimax.chat'
+# VISION_MODEL 不需要
 ```
 
 ## 许可证

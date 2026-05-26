@@ -11,7 +11,10 @@ Use this when the user pastes images but the current model cannot view images di
 The image(s) will have been auto-saved with a path hint like "[Image auto-saved to ...]" in the conversation.
 For multiple images, use the "paths" parameter.
 
-Requires VISION_API_KEY, VISION_API_URL and VISION_MODEL environment variables.`,
+Requires VISION_API_KEY and VISION_API_URL.
+VISION_MODEL is required for OpenAI-compatible backends.
+MiniMax is auto-detected — set VISION_API_URL to your MiniMax base URL and VISION_MODEL is optional.
+Override with VISION_API_TYPE=openai|minimax.`,
   args: {
     paths: tool.schema
       .array(tool.schema.string())
@@ -56,46 +59,113 @@ Requires VISION_API_KEY, VISION_API_URL and VISION_MODEL environment variables.`
 
     const apiKey = process.env["VISION_API_KEY"]
     const baseUrl = process.env["VISION_API_URL"]
-    const model = process.env["VISION_MODEL"]
     if (!apiKey) return "Error: VISION_API_KEY not set"
     if (!baseUrl) return "Error: VISION_API_URL not set"
-    if (!model) return "Error: VISION_MODEL not set"
 
-    const apiUrl = `${baseUrl.replace(/\/+$/, "")}/chat/completions`
+    // Determine API type: explicit override or auto-detect from URL
+    const apiType = (process.env["VISION_API_TYPE"] || "").toLowerCase()
+    const isMiniMax = apiType === "minimax" || (!apiType && /minimax/i.test(baseUrl))
 
-    const content: Record<string, unknown>[] = []
-    if (args.question) {
-      content.push({ type: "text", text: args.question })
-    } else if (resolved.length > 1) {
-      content.push({ type: "text", text: `Describe each of these ${resolved.length} images in detail, labeling which description corresponds to which file.` })
-    } else {
-      content.push({ type: "text", text: "Please describe this image in detail" })
+    if (isMiniMax) {
+      return await callMiniMax(apiKey, baseUrl, resolved, args.question)
     }
+    return await callOpenAI(apiKey, baseUrl, resolved, args.question)
+  },
+})
 
-    for (const filePath of resolved) {
-      const file = Bun.file(filePath)
-      const mime = file.type || "image/png"
-      const buffer = await file.arrayBuffer()
-      const base64 = Buffer.from(buffer).toString("base64")
-      content.push({ type: "image_url", image_url: { url: `data:${mime};base64,${base64}` } })
-    }
+// ── OpenAI-compatible backend ──
+
+async function callOpenAI(apiKey: string, baseUrl: string, resolved: string[], question?: string) {
+  const model = process.env["VISION_MODEL"]
+  if (!model) return "Error: VISION_MODEL not set (required for OpenAI-compatible backends)"
+
+  const apiUrl = `${baseUrl.replace(/\/+$/, "")}/chat/completions`
+
+  const content: Record<string, unknown>[] = []
+  if (question) {
+    content.push({ type: "text", text: question })
+  } else if (resolved.length > 1) {
+    content.push({
+      type: "text",
+      text: `Describe each of these ${resolved.length} images in detail, labeling which description corresponds to which file.`,
+    })
+  } else {
+    content.push({ type: "text", text: "Please describe this image in detail" })
+  }
+
+  for (const filePath of resolved) {
+    const file = Bun.file(filePath)
+    const mime = file.type || "image/png"
+    const buffer = await file.arrayBuffer()
+    const base64 = Buffer.from(buffer).toString("base64")
+    content.push({ type: "image_url", image_url: { url: `data:${mime};base64,${base64}` } })
+  }
+
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content }],
+      max_tokens: 4096,
+    }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    return `Vision API error (${response.status}): ${text}`
+  }
+
+  const data = (await response.json()) as { choices: { message: { content: string } }[] }
+  return data.choices?.[0]?.message?.content ?? "No description returned."
+}
+
+// ── MiniMax VLM backend ──
+
+interface MiniMaxBaseResp {
+  status_code?: number
+  status_msg?: string
+}
+
+interface MiniMaxVlmResponse {
+  base_resp?: MiniMaxBaseResp
+  content?: string
+}
+
+async function callMiniMax(apiKey: string, baseUrl: string, resolved: string[], question?: string) {
+  const apiUrl = `${baseUrl.replace(/\/+$/, "")}/v1/coding_plan/vlm`
+
+  const descriptions: string[] = []
+  for (const filePath of resolved) {
+    const file = Bun.file(filePath)
+    const mime = file.type || "image/png"
+    const buffer = await file.arrayBuffer()
+    const base64 = Buffer.from(buffer).toString("base64")
+    const imageUrl = `data:${mime};base64,${base64}`
+
+    const prompt = question || "Please describe this image in detail"
 
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content }],
-        max_tokens: 4096,
-      }),
+      body: JSON.stringify({ prompt, image_url: imageUrl }),
     })
 
     if (!response.ok) {
       const text = await response.text()
-      return `Vision API error (${response.status}): ${text}`
+      return `MiniMax Vision API error (${response.status}): ${text}`
     }
 
-    const data = (await response.json()) as { choices: { message: { content: string } }[] }
-    return data.choices?.[0]?.message?.content ?? "No description returned."
-  },
-})
+    const data = (await response.json()) as MiniMaxVlmResponse
+
+    // MiniMax wraps errors in base_resp even on HTTP 200
+    if (data.base_resp?.status_code && data.base_resp.status_code !== 0) {
+      return `MiniMax Vision API error: ${data.base_resp.status_msg || `status_code ${data.base_resp.status_code}`}`
+    }
+
+    descriptions.push(data.content || "No description returned.")
+  }
+
+  if (descriptions.length === 1) return descriptions[0]
+  return descriptions.map((d, i) => `--- Image ${i + 1} ---\n${d}`).join("\n\n")
+}

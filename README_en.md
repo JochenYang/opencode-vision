@@ -78,36 +78,61 @@ vision tool calls the vision API → returns image description
 ## Prerequisites
 
 - [OpenCode](https://github.com/opencode-ai/opencode) installed
-- An OpenAI-compatible vision API (e.g., Aliyun DashScope, OpenAI, etc.)
+- A vision-capable API (OpenAI Chat Completions format or MiniMax VLM)
 - Environment variables configured (recommended system-wide)
 
 ## Environment Variables
 
-| Variable          | Description                                            | Example                         |
-| ----------------- | ------------------------------------------------------ | ------------------------------- |
-| `VISION_API_KEY`  | Vision API key                                         | `sk-your-api-key`               |
-| `VISION_API_URL`  | Vision API base URL<br>(tool auto-appends `/chat/completions`) | `https://your-api-endpoint/v1`  |
-| `VISION_MODEL`    | Vision model name                                      | `your-vision-model`             |
+| Variable          | Description                                                        | Example                         |
+| ----------------- | ------------------------------------------------------------------ | ------------------------------- |
+| `VISION_API_KEY`  | Vision API key                                                     | `sk-your-api-key`               |
+| `VISION_API_URL`  | Vision API base URL                                                | `https://your-api-endpoint/v1`  |
+| `VISION_MODEL`    | Vision model name<br>(not needed for MiniMax)                      | `your-vision-model`             |
+| `VISION_API_TYPE` | Optional, force API type<br>`openai` / `minimax`                   | `minimax`                       |
 
-### Windows (System-wide)
+> `VISION_API_URL`: OpenAI-compatible backends auto-append `/chat/completions`; MiniMax auto-detects and uses `/v1/coding_plan/vlm`.
+>
+> `VISION_API_TYPE`: Auto-detected by default (URL containing `minimax` triggers MiniMax mode). Can be explicitly set.
 
+### Example 1: OpenAI-compatible (e.g., Aliyun DashScope)
+
+**Windows:**
 ```powershell
 [System.Environment]::SetEnvironmentVariable('VISION_API_KEY', 'sk-your-api-key', 'User')
 [System.Environment]::SetEnvironmentVariable('VISION_API_URL', 'https://your-api-endpoint/v1', 'User')
 [System.Environment]::SetEnvironmentVariable('VISION_MODEL', 'your-vision-model', 'User')
 ```
 
-**Restart your terminal** after setting.
-
-### macOS / Linux
-
-Add to `~/.zshrc` or `~/.bashrc`:
-
+**macOS / Linux:**
 ```bash
 export VISION_API_KEY="sk-your-api-key"
 export VISION_API_URL="https://your-api-endpoint/v1"
 export VISION_MODEL="your-vision-model"
 ```
+
+### Example 2: MiniMax VLM
+
+MiniMax's VLM endpoint is part of the **Token Plan** service and requires a Group API Key with Token Plan access — a regular Chat API Key won't work.
+
+> How to get one: Login to [MiniMax platform](https://platform.minimaxi.com) → Token Plan → Create/view Group API Key.
+
+**Windows:**
+```powershell
+[System.Environment]::SetEnvironmentVariable('VISION_API_KEY', 'your-minimax-group-api-key', 'User')
+[System.Environment]::SetEnvironmentVariable('VISION_API_URL', 'https://api.minimax.chat', 'User')
+REM VISION_MODEL is not needed — MiniMax auto-detected
+```
+
+**macOS / Linux:**
+```bash
+export VISION_API_KEY="your-minimax-group-api-key"
+export VISION_API_URL="https://api.minimax.chat"
+# VISION_MODEL is not needed — MiniMax auto-detected
+```
+
+> Note: The MiniMax VLM endpoint uses a different base URL from the Chat API. Use `https://api.minimax.chat`.
+
+**Restart your terminal** after setting.
 
 ## Installation
 
@@ -178,7 +203,7 @@ opencode-vision/
 
 - Reads local image files and describes them via a vision API
 - Supports `path` (single) and `paths` (multiple) parameters
-- Compatible with any OpenAI Chat Completions API
+- Supports two backends: OpenAI Chat Completions / MiniMax VLM (auto-detected)
 
 ### Plugin: `plugins/vision-helper.ts`
 
@@ -197,12 +222,28 @@ opencode-vision/
 
 ## Custom Vision API
 
-Compatible with any OpenAI Chat Completions vision API. Just change the environment variables:
+The tool supports two backends with auto-detection or explicit override.
+
+### OpenAI Chat Completions Format
+
+Works with any OpenAI Chat Completions vision API:
 
 ```bash
 export VISION_API_KEY="sk-your-api-key"
 export VISION_API_URL="https://your-api-endpoint/v1"
 export VISION_MODEL="your-vision-model"
+```
+
+### MiniMax VLM
+
+Auto-detected when the URL contains `minimax`/`minimaxi`. Can also be forced with `VISION_API_TYPE=minimax`.
+
+> ⚠️ Requires a **Group API Key** with Token Plan access. Regular Chat API Keys won't work.
+
+```bash
+export VISION_API_KEY="your-minimax-group-api-key"
+export VISION_API_URL="https://api.minimax.chat"
+# VISION_MODEL is not needed
 ```
 
 ## License

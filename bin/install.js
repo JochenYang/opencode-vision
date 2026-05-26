@@ -14,8 +14,8 @@ const FILES = [
 
 const ENV_VARS = [
   { name: "VISION_API_KEY", desc: "视觉 API 密钥 / Vision API key", example: "sk-your-api-key" },
-  { name: "VISION_API_URL", desc: "视觉 API 地址 / Vision API base URL", example: "https://your-api-endpoint/v1" },
-  { name: "VISION_MODEL", desc: "视觉模型名称 / Vision model name", example: "your-vision-model" },
+  { name: "VISION_API_URL", desc: "视觉 API 地址 / Vision API base URL（MiniMax 也可用）", example: "https://api.minimax.chat（MiniMax 官方）" },
+  { name: "VISION_MODEL", desc: "视觉模型名称 / Vision model name（MiniMax 无需此项）", example: "your-vision-model" },
 ]
 
 function log(msg, ok = true) {
@@ -37,6 +37,12 @@ function printEnvGuide() {
     console.log(`    → 示例: ${v.example}`)
     console.log()
   }
+
+  console.log("  \x1b[36mMiniMax 用户注意：\x1b[0m")
+  console.log("  VISION_API_URL 设为你的 MiniMax API 基础地址即可。")
+  console.log("  工具自动检测 MiniMax 并使用 VLM 接口，不需要 VISION_MODEL。")
+  console.log("  也可显式设置 VISION_API_TYPE=minimax。")
+  console.log()
 
   if (isWin) {
     console.log("  \x1b[36mWindows 系统级配置（管理员 PowerShell）：\x1b[0m")
