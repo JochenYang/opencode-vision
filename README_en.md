@@ -1,5 +1,13 @@
+<p align="right">
+  <strong>English</strong> · <a href="README.md">中文</a>
+</p>
+
 <p align="center">
-  <h1 align="center">🔍 opencode-vision</h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo.svg">
+    <img src="assets/logo.svg" width="64" alt="opencode-vision logo">
+  </picture>
+  <h1 align="center">opencode-vision</h1>
   <p align="center">
     Let non-vision OpenCode models "see" pasted images
     <br />

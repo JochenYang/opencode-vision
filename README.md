@@ -1,5 +1,13 @@
+<p align="right">
+  <a href="README_en.md">English</a> · <strong>中文</strong>
+</p>
+
 <p align="center">
-  <h1 align="center">🔍 opencode-vision</h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo.svg">
+    <img src="assets/logo.svg" width="64" alt="opencode-vision logo">
+  </picture>
+  <h1 align="center">opencode-vision</h1>
   <p align="center">
     让不支持多模态的 OpenCode 模型也能「看懂」图片
     <br />
