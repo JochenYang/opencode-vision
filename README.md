@@ -1,11 +1,38 @@
-# opencode-vision
+<p align="center">
+  <h1 align="center">🔍 opencode-vision</h1>
+  <p align="center">
+    让不支持多模态的 OpenCode 模型也能「看懂」图片
+    <br />
+    自动存图 → 引导模型调用 vision 工具 → 返回描述
+  </p>
+  <p align="center">
+    <a href="https://www.npmjs.com/package/@jochenyang/opencode-vision">
+      <img src="https://img.shields.io/npm/v/@jochenyang/opencode-vision?style=flat-square" alt="npm version">
+    </a>
+    <a href="LICENSE">
+      <img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="MIT License">
+    </a>
+    <a href="https://github.com/JochenYang/opencode-vision">
+      <img src="https://img.shields.io/github/stars/JochenYang/opencode-vision?style=flat-square" alt="GitHub stars">
+    </a>
+  </p>
+</p>
 
-[![npm version](https://img.shields.io/npm/v/@jochenyang/opencode-vision)](https://www.npmjs.com/package/@jochenyang/opencode-vision)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+---
 
-为 [OpenCode](https://github.com/opencode-ai/opencode) 提供视觉识别能力的插件 + 工具。
+### ✨ 一行命令安装
 
-当模型本身不支持多模态输入时，自动将用户粘贴的图片保存到临时目录，并引导模型调用 vision 工具进行识别。支持单图和多图。
+```bash
+npx @jochenyang/opencode-vision
+```
+
+卸载同样简单：
+
+```bash
+npx @jochenyang/opencode-vision --uninstall
+```
+
+---
 
 ## 原理
 

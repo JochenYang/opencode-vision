@@ -1,11 +1,38 @@
-# opencode-vision
+<p align="center">
+  <h1 align="center">🔍 opencode-vision</h1>
+  <p align="center">
+    Let non-vision OpenCode models "see" pasted images
+    <br />
+    Auto-saves images → guides model to call vision tool → returns description
+  </p>
+  <p align="center">
+    <a href="https://www.npmjs.com/package/@jochenyang/opencode-vision">
+      <img src="https://img.shields.io/npm/v/@jochenyang/opencode-vision?style=flat-square" alt="npm version">
+    </a>
+    <a href="LICENSE">
+      <img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="MIT License">
+    </a>
+    <a href="https://github.com/JochenYang/opencode-vision">
+      <img src="https://img.shields.io/github/stars/JochenYang/opencode-vision?style=flat-square" alt="GitHub stars">
+    </a>
+  </p>
+</p>
 
-[![npm version](https://img.shields.io/npm/v/@jochenyang/opencode-vision)](https://www.npmjs.com/package/@jochenyang/opencode-vision)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+---
 
-A plugin + tool for [OpenCode](https://github.com/opencode-ai/opencode) that adds vision capabilities.
+### ✨ One-line install
 
-When the current model does not support multimodal input, it automatically saves pasted images to a temporary directory and guides the model to call the vision tool for recognition. Supports single and multiple images.
+```bash
+npx @jochenyang/opencode-vision
+```
+
+Uninstall:
+
+```bash
+npx @jochenyang/opencode-vision --uninstall
+```
+
+---
 
 ## How It Works
 
