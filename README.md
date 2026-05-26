@@ -1,5 +1,8 @@
 # opencode-vision
 
+[![npm version](https://img.shields.io/npm/v/@jochenyang/opencode-vision)](https://www.npmjs.com/package/@jochenyang/opencode-vision)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 为 [OpenCode](https://github.com/opencode-ai/opencode) 提供视觉识别能力的插件 + 工具。
 
 当模型本身不支持多模态输入时，自动将用户粘贴的图片保存到临时目录，并引导模型调用 vision 工具进行识别。支持单图和多图。
@@ -74,10 +77,14 @@ OpenCode 会自动发现 `~/.config/opencode/tools/` 和 `~/.config/opencode/plu
 
 > 如果对应目录不存在，手动创建即可。
 
-### 通过 npx（即将支持）
+### 通过 npx
 
 ```bash
-npx opencode-vision install
+# 安装
+npx @jochenyang/opencode-vision
+
+# 卸载
+npx @jochenyang/opencode-vision --uninstall
 ```
 
 ## 验证
@@ -145,4 +152,4 @@ $env:VISION_MODEL = 'your-vision-model'
 
 ## 许可证
 
-MIT
+[MIT](LICENSE)
