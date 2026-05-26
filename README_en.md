@@ -7,12 +7,27 @@
     <source media="(prefers-color-scheme: dark)" srcset="assets/logo.svg">
     <img src="assets/logo.svg" width="64" alt="opencode-vision logo">
   </picture>
-  <h1 align="center">opencode-vision</h1>
-  <p align="center">
-    Let non-vision OpenCode models "see" pasted images
-    <br />
-    Auto-saves images → guides model to call vision tool → returns description
-  </p>
+</p>
+<h1 align="center">opencode-vision</h1>
+<p align="center">
+  🌐 <strong>English</strong> · <a href="README.md">中文</a>
+</p>
+<p align="center">
+  Let non-vision OpenCode models "see" pasted images
+  <br />
+  Auto-saves images → guides model to call vision tool → returns description
+</p>
+<p align="center">
+  <a href="https://www.npmjs.com/package/@jochenyang/opencode-vision">
+    <img src="https://img.shields.io/npm/v/@jochenyang/opencode-vision?style=flat-square" alt="npm version">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="MIT License">
+  </a>
+  <a href="https://github.com/JochenYang/opencode-vision">
+    <img src="https://img.shields.io/github/stars/JochenYang/opencode-vision?style=flat-square" alt="GitHub stars">
+  </a>
+</p>
   <p align="center">
     <a href="https://www.npmjs.com/package/@jochenyang/opencode-vision">
       <img src="https://img.shields.io/npm/v/@jochenyang/opencode-vision?style=flat-square" alt="npm version">
