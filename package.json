@@ -1,0 +1,24 @@
+{
+  "name": "@jochenyang/opencode-vision",
+  "version": "1.0.0",
+  "description": "Vision plugin + tool for OpenCode — automatically handles pasted images for non-vision models",
+  "keywords": ["opencode", "vision", "image", "ai", "plugin", "tool"],
+  "homepage": "https://github.com/jochenyang/opencode-vision",
+  "license": "MIT",
+  "author": "Jochen Yang",
+  "bin": {
+    "opencode-vision": "./bin/install.js"
+  },
+  "files": [
+    "bin/",
+    "tools/",
+    "plugins/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
