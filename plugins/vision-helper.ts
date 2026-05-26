@@ -7,8 +7,8 @@ const TMP_DIR = path.join(tmpdir(), "opencode-vision")
 /**
  * 在消息发送给模型前一刻，检测用户消息中的图片附件：
  * 1. 保存图片到临时目录
- * 2. 在用户文本前注入路径提示，让不支持多模态的模型自动调用 vision 工具
- * 3. 替换原始图片部分避免 unsupportedParts 产生噪音 ERROR 文本
+ * 2. 用简短占位替换原始图片部分（消除 unsupportedParts 的 ERROR 噪音）
+ * 3. 注入路径提示（新 push 的 part，不持久化，UI 不可见）
  */
 export default (async () => {
   await Bun.write(path.join(TMP_DIR, ".check"), "").catch(() => {})
@@ -40,8 +40,7 @@ export default (async () => {
 
         if (saved.length === 0) continue
 
-        // 用简短文本占位替换原始图片 part，防止 unsupportedParts 产生噪音 ERROR
-        // 逆序遍历避免 index 偏移
+        // 用简短占位替换原始图片 part，防止 unsupportedParts 产生噪音 ERROR
         for (const { index, filePath } of saved.toReversed()) {
           msg.parts.splice(index, 1, {
             type: "text",
@@ -49,16 +48,16 @@ export default (async () => {
           } as never)
         }
 
-        // 构造路径提示
-        const hintText = saved.length === 1
+        // 构造路径提示（新 push 的 part，不持久化，UI 不可见）
+        const hints = saved.length === 1
           ? `[Image auto-saved to ${saved[0].filePath} — use the vision tool to read it]`
           : `[Images auto-saved to:\n${saved.map((s) => `  ${s.filePath}`).join("\n")}\n— use the vision tool with paths=[...] to read them all at once]`
 
-        // 注入到用户文本前面
-        const firstText = msg.parts.find((p) => p.type === "text" && !p.synthetic)
-        if (firstText && typeof firstText.text === "string") {
-          firstText.text = hintText + "\n" + firstText.text
-        }
+        // push 新的 part 而非修改现有 part，避免影响 UI 渲染
+        ;(msg.parts as unknown as Record<string, unknown>[]).push({
+          type: "text" as const,
+          text: hints,
+        })
       }
     },
   }
