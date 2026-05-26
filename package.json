@@ -7,7 +7,7 @@
   "license": "MIT",
   "author": "Jochen Yang",
   "bin": {
-    "opencode-vision": "./bin/install.js"
+    "opencode-vision": "bin/install.js"
   },
   "files": [
     "bin/",
