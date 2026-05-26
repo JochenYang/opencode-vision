@@ -1,5 +1,5 @@
-<p align="right">
-  <a href="README_en.md">English</a> · <strong>中文</strong>
+<p align="center">
+  🌐 <a href="README_en.md">English</a> · <strong>中文</strong>
 </p>
 
 <p align="center">
