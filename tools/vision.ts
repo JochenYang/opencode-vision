@@ -8,7 +8,8 @@ const TMP_DIR = path.join(tmpdir(), "opencode-vision")
 export default tool({
   description: `Reads one or more image files and returns a description of their contents.
 Use this when the user pastes images but the current model cannot view images directly.
-The image(s) will have been auto-saved with a path hint like "[Image auto-saved to ...]" in the conversation.
+The image(s) will have been auto-saved with a path hint like "[Image #N auto-saved to ...]" in the conversation.
+Each paste batch gets a sequential "image{N}/" prefix in the filename for disambiguation.
 For multiple images, use the "paths" parameter.
 
 Requires VISION_API_KEY and VISION_API_URL.
@@ -38,7 +39,7 @@ Override with VISION_API_TYPE=openai|minimax.`,
     }
     if (allPaths.length === 0) return "Error: no image path provided"
 
-    // Resolve each path (try absolute first, then fallback to TMP_DIR)
+    // Resolve each path (try absolute, then TMP_DIR/{path}, then TMP_DIR/{basename})
     const resolved: string[] = []
     for (const p of allPaths) {
       let file = Bun.file(p)
@@ -46,6 +47,14 @@ Override with VISION_API_TYPE=openai|minimax.`,
         resolved.push(p)
         continue
       }
+      // Try TMP_DIR/image{N}/filename (from sequential paste prefix)
+      const withPrefix = path.join(TMP_DIR, p)
+      file = Bun.file(withPrefix)
+      if (await file.exists()) {
+        resolved.push(withPrefix)
+        continue
+      }
+      // Try TMP_DIR/filename (backward compat)
       const fallback = path.join(TMP_DIR, path.basename(p))
       file = Bun.file(fallback)
       if (await file.exists()) {
