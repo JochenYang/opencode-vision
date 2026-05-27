@@ -41,6 +41,17 @@ jobs:
             git log --no-decorate --format="- %s" "${CURRENT_TAG}" >> release_notes.md
           fi
 
+      - name: Delete existing release (if any)
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" &>/dev/null; then
+            echo "Deleting existing release ${GITHUB_REF_NAME}..."
+            gh release delete "${GITHUB_REF_NAME}" --yes
+          else
+            echo "No existing release for ${GITHUB_REF_NAME}, skipping delete"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
