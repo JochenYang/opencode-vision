@@ -15,7 +15,33 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Generate changelog
+        run: |
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+
+          # 找到上一个版本 tag（按 semver 降序，取第一个不是当前 tag 的）
+          PREV_TAG=""
+          for tag in $(git tag --list 'v*' --sort=-v:refname); do
+            if [ "$tag" != "$CURRENT_TAG" ]; then
+              PREV_TAG="$tag"
+              break
+            fi
+          done
+
+          echo "# Release ${CURRENT_TAG}" > release_notes.md
+          echo "" >> release_notes.md
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "## Changes since ${PREV_TAG}" >> release_notes.md
+            echo "" >> release_notes.md
+            git log --no-decorate --format="- %s" "${PREV_TAG}..${CURRENT_TAG}" >> release_notes.md
+          else
+            echo "## Initial release" >> release_notes.md
+            echo "" >> release_notes.md
+            git log --no-decorate --format="- %s" "${CURRENT_TAG}" >> release_notes.md
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: release_notes.md
