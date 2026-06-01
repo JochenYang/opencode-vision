@@ -9,11 +9,18 @@ const TMP_DIR = path.join(tmpdir(), "opencode-vision")
 const imageRegistry = new Map<string, number>()
 let nextImageSeq = 1
 
+// 原生支持多模态（可直接识别图片）的模型匹配规则
+// 匹配的模型 → 跳过 transform，让 OpenCode 原生管道处理图片
+// 不匹配的模型 → 走 vision 工具 fallback
+const NATIVE_VISION = /gpt-|o[0-9]|claude-|gemini-|qwen3\.(5|6)|qwen-vl|qwen2-5-vl|qwen3-vl|qwen-omni|qvq-max|kimi-k2\.(5|6)|minimax-m3|minimax-vl|glm-[0-9.]+v|mimo-v2-omni|mimo-v2\.5$|yi-vl|deepseek-vl2/i
+
 /**
  * 在消息发送给模型前一刻，检测用户消息中的图片附件：
- * 1. 保存图片到临时目录
- * 2. 用简短占位替换原始图片部分（消除 unsupportedParts 的 ERROR 噪音）
- * 3. 注入路径提示（新 push 的 part，不持久化，UI 不可见）
+ * 1. 如果当前模型支持原生多模态 → 跳过，让 OpenCode 原生处理
+ * 2. 否则：
+ *    a. 保存图片到临时目录
+ *    b. 用简短占位替换原始图片部分（消除 unsupportedParts 的 ERROR 噪音）
+ *    c. 注入路径提示（新 push 的 part，不持久化，UI 不可见）
  *
  * 按图片在会话中的出现顺序分配全局序号：
  *   第 1 张图 → image1/xxx.png
@@ -29,6 +36,10 @@ export default (async () => {
     "experimental.chat.messages.transform": async (_input, output) => {
       for (const msg of output.messages) {
         if (msg.info.role !== "user") continue
+
+        // 检测当前模型是否支持原生多模态
+        const modelID = (msg.info.model?.modelID || "").toLowerCase()
+        if (NATIVE_VISION.test(modelID)) continue
 
         const saved: { index: number; name: string; seq: number }[] = []
 
