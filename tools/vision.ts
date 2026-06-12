@@ -128,9 +128,23 @@ Override with VISION_API_TYPE=openai|minimax.`,
 
 // ── OpenAI-compatible backend ──
 
+// P1-4: 60s default fetch timeout to prevent API hangs from freezing OpenCode
+const FETCH_TIMEOUT_MS = Number(process.env["VISION_FETCH_TIMEOUT_MS"] || 60_000)
+
+/**
+ * Truncate long error response bodies so we don't dump a multi-MB HTML error page
+ * into the LLM context.
+ */
+function truncate(s: string, max = 1024): string {
+  return s.length > max ? s.slice(0, max) + `... [truncated, ${s.length} bytes total]` : s
+}
+
 async function callOpenAI(apiKey: string, baseUrl: string, resolved: string[], question?: string) {
   const model = process.env["VISION_MODEL"]
   if (!model) return "Error: VISION_MODEL not set (required for OpenAI-compatible backends)"
+
+  // P2-2: allow VISION_MAX_TOKENS override; default 4096
+  const maxTokens = Number(process.env["VISION_MAX_TOKENS"] || 4096)
 
   const apiUrl = `${baseUrl.replace(/\/+$/, "")}/chat/completions`
 
@@ -154,18 +168,32 @@ async function callOpenAI(apiKey: string, baseUrl: string, resolved: string[], q
     content.push({ type: "image_url", image_url: { url: `data:${mime};base64,${base64}` } })
   }
 
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content }],
-      max_tokens: 4096,
-    }),
-  })
+  // P1-4: AbortController-based timeout
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  let response: Response
+  try {
+    response = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content }],
+        max_tokens: maxTokens,
+      }),
+      signal: controller.signal,
+    })
+  } catch (err) {
+    if ((err as Error).name === "AbortError") {
+      return `Vision API error: request timed out after ${FETCH_TIMEOUT_MS}ms`
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
 
   if (!response.ok) {
-    const text = await response.text()
+    const text = truncate(await response.text())
     return `Vision API error (${response.status}): ${text}`
   }
 
@@ -198,14 +226,28 @@ async function callMiniMax(apiKey: string, baseUrl: string, resolved: string[], 
 
     const prompt = question || "Please describe this image in detail"
 
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ prompt, image_url: imageUrl }),
-    })
+    // P1-4: AbortController-based timeout (per-image)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+    let response: Response
+    try {
+      response = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ prompt, image_url: imageUrl }),
+        signal: controller.signal,
+      })
+    } catch (err) {
+      if ((err as Error).name === "AbortError") {
+        return `MiniMax Vision API error: request timed out after ${FETCH_TIMEOUT_MS}ms`
+      }
+      throw err
+    } finally {
+      clearTimeout(timer)
+    }
 
     if (!response.ok) {
-      const text = await response.text()
+      const text = truncate(await response.text())
       return `MiniMax Vision API error (${response.status}): ${text}`
     }
 
