@@ -33,7 +33,30 @@ function touchLRU(seqDir: string) {
 // Regex matching models with native multimodal (image) support.
 // Matched models → skip the transform, let OpenCode's native pipeline handle the image.
 // Non-matched models → fall through to the vision tool.
-const NATIVE_VISION = /gpt-|o[0-9]|claude-|gemini-|qwen3\.(5|6)|qwen-vl|qwen2-5-vl|qwen3-vl|qwen-omni|qvq-max|kimi-k2\.(5|6)|minimax-m3|minimax-vl|glm-[0-9.]+v|mimo-v2-omni|mimo-v2\.5$|yi-vl|deepseek-vl2/i
+//
+// Coverage:
+//   Foreign  : GPT-4o+, o1/o3/o4+, Claude 3/4/5, Gemini, Pixtral, Llama 3.2 Vision, Nova Vision
+//   Alibaba  : Qwen VL/Omni series, Qwen 3.5/3.6, QVQ-Max
+//   Kimi     : kimi-k2.5, kimi-k2.6
+//   MiniMax  : MiniMax-M3, MiniMax-VL-*
+//   GLM      : glm-*v (with "v" suffix = vision variant)
+//   Xiaomi   : mimo-v2-omni, mimo-v2.5
+//   Yi       : yi-vl-*
+//   DeepSeek : deepseek-vl2 (SiliconFlow hosted)
+//   Doubao   : doubao-*-vision
+//   InternVL : internvl*
+//   Seed     : seed-*-vision
+//
+// Note on Qwen 3.5/3.6: NOT followed by `-max`/`-max-preview` (which are text-only).
+//   Match: qwen3.5-plus, qwen3.6-flash, qwen3.6-plus, qwen3.5-flash
+//   Skip : qwen3.6-max-preview (text), qwen3.7-max (text), qwen3-max (text)
+// Foreign: GPT/o[0-9]/Claude/Gemini/Pixtral/Llama 3.2 Vision/Nova Vision
+// Qwen VL family: matches qwen-vl-*, qwen2-vl-*, qwen2.5-vl-*, qwen3-vl-*, qwen-omni-*, qvq-max
+//   The "qwen-vl" branch handles the no-version-number case; the numbered branch
+//   matches qwen2/2.5/3 with optional separator variants (-/_/.)
+// Qwen 3.5/3.6 multimodal series: qwen3.5-plus, qwen3.5-flash, qwen3.6-plus, qwen3.6-flash
+//   Negative lookahead (?!-max) excludes text-only qwen3.6-max-preview / qwen3.7-max / qwen3-max
+const NATIVE_VISION = /gpt-|o[0-9]|claude-|gemini-|pixtral|llama-3\.2.*vision|nova-.*vision|qwen3\.[56](?!-max)|qwen(?:-vl|2[._-]?5?[._-]?vl)|qwen2-vl|qwen3-vl|qwen-omni|qvq-max|kimi-k2\.(5|6)|minimax-m3|minimax-vl|glm-[0-9.]+v|mimo-v2-omni|mimo-v2\.5$|yi-vl|deepseek-vl2|doubao-.*vision|seed-.*vision|internvl/i
 
 /**
  * Hook runs just before messages are sent to the model. Detects image attachments in
@@ -131,7 +154,7 @@ export default (async () => {
           msg.parts.splice(index, 1, {
             type: "text",
             text: `[vision: image${seq}/${name}]`,
-          } as never)
+          } as { type: "text"; text: string })
         }
 
         // Build path hint(s) for the model to use the vision tool
@@ -139,8 +162,8 @@ export default (async () => {
           ? `[Image #${saved[0].seq} auto-saved to ${path.join(TMP_DIR, `image${saved[0].seq}`, saved[0].name)} — use the vision tool to read it]`
           : `[Images auto-saved to:\n${saved.map((s) => `  ${path.join(TMP_DIR, `image${s.seq}`, s.name)}`).join("\n")}\n— use the vision tool with paths=[...] to read them all at once]`
 
-        ;(msg.parts as unknown as Record<string, unknown>[]).push({
-          type: "text" as const,
+        msg.parts.push({
+          type: "text",
           text: hints,
         })
       }

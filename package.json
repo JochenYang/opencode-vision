@@ -1,6 +1,6 @@
 {
   "name": "@jochenyang/opencode-vision",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Vision plugin + tool for OpenCode — automatically handles pasted images for non-vision models",
   "keywords": [
     "opencode",

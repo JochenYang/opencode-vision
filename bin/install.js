@@ -122,6 +122,11 @@ async function doInstall() {
     log("未检测到 OpenCode — 请先安装 https://github.com/opencode-ai/opencode", false)
   }
 
+  // P2-8: offer to write env vars into opencode.json so users don't have to restart
+  if (missing > 0) {
+    await offerWriteOpencodeJson()
+  }
+
   title("安装完成")
   console.log("  ✅ 文件已就位，重启 OpenCode 后即可使用。")
   if (missing > 0) {
@@ -130,6 +135,79 @@ async function doInstall() {
   }
   console.log("  📝 使用方式：粘贴一张图片并提问")
   console.log('     "[图片] 这是什么？"')
+}
+
+/**
+ * P2-8: 交互式询问是否将环境变量写入 ~/.config/opencode/opencode.json 的 env 字段。
+ * 这样用户不需要重启终端或系统就能让变量生效。
+ */
+async function offerWriteOpencodeJson() {
+  const configPath = path.join(DST, "opencode.json")
+  title("opencode.json 写入选项")
+  console.log("  检测到环境变量未完整配置。")
+  console.log("  可以直接将变量写入 ~/.config/opencode/opencode.json（无需重启终端）。")
+  console.log()
+  console.log("  \x1b[36m写入内容预览：\x1b[0m")
+  const preview = {
+    env: {
+      VISION_API_KEY: "<your-key-here>",
+      VISION_API_URL: "<your-api-url-here>",
+      ...(process.env["VISION_API_TYPE"] ? { VISION_API_TYPE: process.env["VISION_API_TYPE"] } : {}),
+    },
+  }
+  console.log("  " + JSON.stringify(preview, null, 2).split("\n").join("\n  "))
+  console.log()
+
+  const readline = require("readline")
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+  const answer = await new Promise((resolve) =>
+    rl.question("  写入 opencode.json? [y/N] ", (ans) => {
+      rl.close()
+      resolve(ans)
+    }),
+  )
+
+  if (!/^y(es)?$/i.test(answer.trim())) {
+    console.log("  跳过写入，请手动设置环境变量。")
+    return
+  }
+
+  // Read or init config
+  let config = {}
+  if (fs.existsSync(configPath)) {
+    try {
+      config = JSON.parse(fs.readFileSync(configPath, "utf8"))
+    } catch (err) {
+      log(`无法读取 ${configPath}: ${err.message}，请手动备份后重试`, false)
+      return
+    }
+  }
+  config.env = config.env || {}
+
+  // For each missing env var, prompt for a value
+  const readline2 = require("readline")
+  const rl2 = readline2.createInterface({ input: process.stdin, output: process.stdout })
+  for (const v of ENV_VARS) {
+    if (process.env[v.name]) continue
+    const val = await new Promise((resolve) =>
+      rl2.question(`  ${v.name}: `, (ans) => resolve(ans.trim())),
+    )
+    if (val) {
+      config.env[v.name] = val
+      log(`已记录 ${v.name}`)
+    }
+  }
+  rl2.close()
+
+  // Write back with a .bak backup
+  if (fs.existsSync(configPath)) {
+    fs.copyFileSync(configPath, configPath + ".bak")
+  }
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n")
+  log(`已写入 ${path.relative(os.homedir(), configPath)}`)
+  if (fs.existsSync(configPath + ".bak")) {
+    log(`原文件已备份到 ${path.basename(configPath)}.bak`)
+  }
 }
 
 async function doUninstall() {
@@ -150,6 +228,17 @@ async function doUninstall() {
     if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
       fs.rmdirSync(dir)
       log(`已清理空目录 ${path.relative(os.homedir(), dir)}`)
+    }
+  }
+
+  // P2-9: clean up the temp directory containing cached images (user privacy)
+  const tmpDir = path.join(os.tmpdir(), "opencode-vision")
+  if (fs.existsSync(tmpDir)) {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+      log(`已清理临时目录 ${path.relative(os.tmpdir(), tmpDir)}/* (含缓存图片)`)
+    } catch (err) {
+      log(`清理临时目录失败: ${err.message}`, false)
     }
   }
 

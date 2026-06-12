@@ -47,17 +47,25 @@ npx @jochenyang/opencode-vision --uninstall
 用户粘贴图片 + "这是什么？"
   ↓
 vision-helper 插件 (experimental.chat.messages.transform)
-  ├─ 解 base64 → 保存到临时目录
-  ├─ 用简短占位替换原始图片部分（消除不支持的模型的 ERROR 噪音）
-  └─ 路径提示注入到用户文本前
+  ├─ 检查当前模型是否原生多模态 → 是则跳过（直接看图）
+  ├─ 检查是否在压缩/总结阶段 → 是则跳过
+  ├─ 解 base64 → 计算 MD5 → 复用/分配 image{N} 序号
+  ├─ 保存到 tmp/opencode-vision/image{N}/{hash}.{ext}
+  ├─ 用简短占位替换原始图片 part（消除 ERROR 噪音）
+  ├─ 注入路径提示（vision tool 引导）
+  └─ 清理上次 transform 注入的 hint（防累积）
   ↓
 模型看到路径提示 → 自动调用 vision 工具
   ↓
-vision 工具调用视觉 API 返回图片描述
+vision 工具：
+  ├─ 路径沙箱校验（必须在 TMP_DIR 下，必须是图片扩展名）
+  ├─ base64 编码 → 调视觉 API
+  └─ 返回描述
 ```
 
 - **单图** → 模型调用 `vision(path)` 读取单张图片
 - **多图** → 模型调用 `vision(paths=[...])` 一次 API 调用处理全部图片
+- **原生多模态模型**（如 GPT-4o、MiniMax-M3、Qwen3.5+、Kimi K2.5+）→ 自动跳过插件，原生看图
 
 ## 前置要求
 
@@ -67,12 +75,15 @@ vision 工具调用视觉 API 返回图片描述
 
 ## 环境变量
 
-| 变量               | 说明                                   | 示例值                                                        |
+| 变量               | 说明                                   | 默认值 / 示例                                                        |
 | ------------------ | -------------------------------------- | ------------------------------------------------------------- |
 | `VISION_API_KEY`   | 视觉 API 的密钥                        | `sk-your-api-key`                                              |
 | `VISION_API_URL`   | 视觉 API 的基础地址                     | `https://your-api-endpoint/v1`                                 |
 | `VISION_MODEL`     | 视觉模型名称<br>（MiniMax 无需设置）    | `your-vision-model`                                            |
 | `VISION_API_TYPE`  | 可选，强制指定 API 类型<br>`openai` / `minimax` | `minimax`                                           |
+| `VISION_MAX_TOKENS` | 可选，视觉 API 返回的最大 token 数    | `4096`                                                          |
+| `VISION_FETCH_TIMEOUT_MS` | 可选，视觉 API fetch 超时毫秒数 | `60000`                                                         |
+| `VISION_MAX_IMAGES` | 可选，LRU 保留的最大图片数            | `200`                                                           |
 
 > `VISION_API_URL`：OpenAI 兼容接口会自动补全 `/chat/completions`；MiniMax 会自动使用 `/v1/coding_plan/vlm` 端点。
 >
@@ -194,10 +205,12 @@ opencode-vision/
 
 ## 注意事项
 
-- 图片保存到系统临时目录 `os.tmpdir()/opencode-vision/`，重启系统后自动清理
-- 临时文件以 `pasted-{timestamp}-{random}.{ext}` 命名
-- 同一会话中多次粘贴同一张图会产生多个临时文件
-- 视觉 API 调用使用 `max_tokens: 4096`，多图场景下足够返回详细描述
+- 图片保存到系统临时目录 `os.tmpdir()/opencode-vision/image{N}/{hash}.{ext}`（N 为全局序号）
+- 同一会话中**同一张图**通过 MD5 内容哈希去重，**不会**重复写盘
+- **LRU 清理**：默认保留最近 200 张图片（可通过 `VISION_MAX_IMAGES` 环境变量调整）
+- 视觉 API 调用使用 `max_tokens: 4096`（可通过 `VISION_MAX_TOKENS` 调整）
+- 视觉 API fetch 默认 60s 超时（可通过 `VISION_FETCH_TIMEOUT_MS` 调整）
+- **多模态模型自动原生识图**：GPT-4o+/Claude 3+/Gemini/MiniMax-M3/Qwen3.5+/Kimi K2.5+ 等模型无需配置视觉 API，插件会自动跳过
 
 ## 自定义视觉 API
 
