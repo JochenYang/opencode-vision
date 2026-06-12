@@ -30,7 +30,9 @@ const NATIVE_VISION = /gpt-|o[0-9]|claude-|gemini-|qwen3\.(5|6)|qwen-vl|qwen2-5-
  * 通过图片内容哈希去重，不受 transform 重复执行或消息状态影响。
  */
 export default (async () => {
-  await Bun.write(path.join(TMP_DIR, ".check"), "").catch(() => {})
+  // 启动时确保 tmp 根目录存在（Bun.write 在 parent dir 不存在时也会 mkdirp，
+  // 但显式 mkdir 一次更清晰，也方便后续 hook 启动失败时定位问题）
+  await import("fs").then((fs) => fs.promises.mkdir(TMP_DIR, { recursive: true }).catch(() => {}))
 
   return {
     "experimental.chat.messages.transform": async (_input, output) => {
@@ -40,6 +42,16 @@ export default (async () => {
         // 检测当前模型是否支持原生多模态
         const modelID = (msg.info.model?.modelID || "").toLowerCase()
         if (NATIVE_VISION.test(modelID)) continue
+
+        // 先清理上一次 transform 注入的 hint（防累积）
+        // hints 由本插件注入，匹配特定前缀以便识别
+        for (let i = msg.parts.length - 1; i >= 0; i--) {
+          const p = msg.parts[i] as unknown as { type?: string; text?: string }
+          if (p.type === "text" && typeof p.text === "string" &&
+              (p.text.startsWith("[Image #") || p.text.startsWith("[Images auto-saved to:"))) {
+            msg.parts.splice(i, 1)
+          }
+        }
 
         const saved: { index: number; name: string; seq: number }[] = []
 
@@ -64,9 +76,7 @@ export default (async () => {
           const ext = part.mime.split("/")[1] || "png"
           const name = `${hash}.${ext}`
 
-          const seqDir = path.join(TMP_DIR, `image${seq}`)
-          await Bun.write(path.join(seqDir, ".check"), "").catch(() => {})
-          const filePath = path.join(seqDir, name)
+          const filePath = path.join(TMP_DIR, `image${seq}`, name)
           // 如果已存在（同 hash 的图已存过）则跳过写盘
           if (!(await Bun.file(filePath).exists())) {
             await Bun.write(filePath, Buffer.from(base64, "base64"))

@@ -4,6 +4,36 @@ import { tmpdir } from "os"
 import path from "path"
 
 const TMP_DIR = path.join(tmpdir(), "opencode-vision")
+const TMP_DIR_RESOLVED = path.resolve(TMP_DIR)
+
+// 单图最大 50MB，防止恶意大文件 OOM
+const MAX_FILE_SIZE = 50 * 1024 * 1024
+
+// 合法的图片扩展名（白名单）
+const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"])
+
+/**
+ * 路径沙箱：只允许读取 TMP_DIR 下的图片文件
+ * 防止 vision 工具被 prompt injection 诱导读取 /etc/passwd 等敏感文件
+ * 并 base64 发给外部 VISION_API_URL 服务端造成数据外泄
+ */
+function sandboxPath(p: string): string | null {
+  // 1. 解析并规范化路径
+  const resolved = path.resolve(p)
+
+  // 2. 必须位于 TMP_DIR 之下（防止任意路径读取）
+  if (!resolved.startsWith(TMP_DIR_RESOLVED + path.sep) && resolved !== TMP_DIR_RESOLVED) {
+    return null
+  }
+
+  // 3. 必须有合法图片扩展名
+  const ext = path.extname(resolved).toLowerCase()
+  if (!IMAGE_EXTS.has(ext)) {
+    return null
+  }
+
+  return resolved
+}
 
 export default tool({
   description: `Reads one or more image files and returns a description of their contents.
@@ -37,33 +67,47 @@ Override with VISION_API_TYPE=openai|minimax.`,
     } else if (args.path) {
       allPaths.push(args.path)
     }
-    if (allPaths.length === 0) return "Error: no image path provided"
+    // 过滤空字符串 / null / 非字符串
+    const validInputPaths = allPaths.filter((p): p is string => typeof p === "string" && p.length > 0)
+    if (validInputPaths.length === 0) return "Error: no image path provided"
 
     // Resolve each path (try absolute, then TMP_DIR/{path}, then TMP_DIR/{basename})
     const resolved: string[] = []
-    for (const p of allPaths) {
-      let file = Bun.file(p)
-      if (await file.exists()) {
-        resolved.push(p)
-        continue
+    const rejected: string[] = []
+    for (const p of validInputPaths) {
+      // 三层路径尝试，每层都过沙箱
+      const candidates = [
+        p,                                       // 1. 绝对路径直传
+        path.join(TMP_DIR, p),                   // 2. TMP_DIR/{path}
+        path.join(TMP_DIR, path.basename(p)),    // 3. TMP_DIR/{basename} (向后兼容)
+      ]
+      let found: string | null = null
+      for (const candidate of candidates) {
+        const safe = sandboxPath(candidate)
+        if (!safe) continue
+        const file = Bun.file(safe)
+        if (!(await file.exists())) continue
+        // 大小限制
+        if (file.size > MAX_FILE_SIZE) {
+          rejected.push(`${safe} (too large: ${(file.size / 1024 / 1024).toFixed(1)}MB > ${MAX_FILE_SIZE / 1024 / 1024}MB)`)
+          found = null
+          break
+        }
+        found = safe
+        break
       }
-      // Try TMP_DIR/image{N}/filename (from sequential paste prefix)
-      const withPrefix = path.join(TMP_DIR, p)
-      file = Bun.file(withPrefix)
-      if (await file.exists()) {
-        resolved.push(withPrefix)
-        continue
-      }
-      // Try TMP_DIR/filename (backward compat)
-      const fallback = path.join(TMP_DIR, path.basename(p))
-      file = Bun.file(fallback)
-      if (await file.exists()) {
-        resolved.push(fallback)
+      if (found) {
+        resolved.push(found)
+      } else {
+        rejected.push(p)
       }
     }
 
     if (resolved.length === 0) {
-      return `Error: none of the specified images were found (looked in: ${allPaths.join(", ")})`
+      const reasons = rejected.length > 0
+        ? `\nRejected paths (not in TMP_DIR, not an image, or too large):\n  ${rejected.join("\n  ")}`
+        : ""
+      return `Error: none of the specified images could be read.${reasons}\nTip: paths must point to images in ${TMP_DIR_RESOLVED} (e.g. ${TMP_DIR_RESOLVED}/image1/abc123.png).`
     }
 
     const apiKey = process.env["VISION_API_KEY"]
