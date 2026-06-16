@@ -30,59 +30,68 @@ function touchLRU(seqDir: string) {
   }
 }
 
-// Regex matching models with native multimodal (image) support.
-// Matched models → skip the transform, let OpenCode's native pipeline handle the image.
-// Non-matched models → fall through to the vision tool.
+// Identifies text parts that THIS plugin injected into a user message during a
+// previous transform run. The transform hook re-runs for every message sent to
+// the LLM (including after a /model switch), so we must clear these stale
+// injections on every pass — otherwise native-vision models would see the
+// "[vision: imageN/hash.ext]" placeholder text and incorrectly call the vision
+// tool to "read" it, instead of viewing the original image part natively.
 //
-// Coverage:
-//   Foreign  : GPT-4o+, o1/o3/o4+, Claude 3/4/5, Gemini, Pixtral, Llama 3.2 Vision, Nova Vision
-//   Alibaba  : Qwen VL/Omni series, Qwen 3.5/3.6, QVQ-Max
-//   Kimi     : kimi-k2.5, kimi-k2.6
-//   MiniMax  : MiniMax-M3, MiniMax-VL-*
-//   GLM      : glm-*v (with "v" suffix = vision variant)
-//   Xiaomi   : mimo-v2-omni, mimo-v2.5
-//   Yi       : yi-vl-*
-//   DeepSeek : deepseek-vl2 (SiliconFlow hosted)
-//   Doubao   : doubao-*-vision
-//   InternVL : internvl*
-//   Seed     : seed-*-vision
-//
-// Note on Qwen 3.5/3.6: NOT followed by `-max`/`-max-preview` (which are text-only).
-//   Match: qwen3.5-plus, qwen3.6-flash, qwen3.6-plus, qwen3.5-flash
-//   Skip : qwen3.6-max-preview (text), qwen3.7-max (text), qwen3-max (text)
-// Foreign: GPT/o[0-9]/Claude/Gemini/Pixtral/Llama 3.2 Vision/Nova Vision
-// Qwen VL family: matches qwen-vl-*, qwen2-vl-*, qwen2.5-vl-*, qwen3-vl-*, qwen-omni-*, qvq-max
-//   The "qwen-vl" branch handles the no-version-number case; the numbered branch
-//   matches qwen2/2.5/3 with optional separator variants (-/_/.)
-// Qwen 3.5/3.6 multimodal series: qwen3.5-plus, qwen3.5-flash, qwen3.6-plus, qwen3.6-flash
-//   Negative lookahead (?!-max) excludes text-only qwen3.6-max-preview / qwen3.7-max / qwen3-max
-const NATIVE_VISION = /gpt-|o[0-9]|claude-|gemini-|pixtral|llama-3\.2.*vision|nova-.*vision|qwen3\.[56](?!-max)|qwen(?:-vl|2[._-]?5?[._-]?vl)|qwen2-vl|qwen3-vl|qwen-omni|qvq-max|kimi-k2\.(5|6)|minimax-m3|minimax-vl|glm-[0-9.]+v|mimo-v2-omni|mimo-v2\.5$|yi-vl|deepseek-vl2|doubao-.*vision|seed-.*vision|internvl/i
+// Mirrored in tests/transform-cleanup.test.ts — keep in sync.
+function isPluginInjectedText(text: string): boolean {
+  if (!text) return false
+  return (
+    /^\[Image #\d+ auto-saved to /.test(text) ||
+    /^\[Images auto-saved to:/.test(text) ||
+    /^\[vision: image\d+\/[\w-]+\.[\w]+]$/.test(text)
+  )
+}
 
 /**
- * Hook runs just before messages are sent to the model. Detects image attachments in
- * user messages and either:
- *  1. Skips the transform if the current model supports native multimodal
- *  2. Skips the transform during compaction (summary messages are already text)
- *  3. Otherwise:
- *     a. Saves images to a temp dir
- *     b. Replaces file parts with short text placeholders (avoids unsupportedParts ERROR)
- *     c. Pushes a path-hint text part for the model to call the vision tool
- *     d. Cleans up hints from a previous transform run (prevents accumulation)
- *     e. Tracks usage for LRU eviction
+ * Hook runs just before messages are sent to the model. For every user message
+ * with attached images:
+ *  1. Skips compaction messages (summary messages are already text)
+ *  2. Cleans up any text parts this plugin injected in a previous transform
+ *     run (prevents hint/placeholder accumulation across model switches)
+ *  3. Saves each image to a temp dir so the vision tool can read it
+ *  4. Pushes a path-hint text part telling the LLM where the image was saved
+ *
+ * We deliberately do NOT replace the original file parts and do NOT decide
+ * whether the current model is multimodal — OpenCode already handles both via
+ * ProviderTransform.unsupportedParts (checks model.capabilities.input). For
+ * native-vision models, the original image part reaches the LLM and it views
+ * the image directly; for non-vision models, OpenCode replaces the image part
+ * with an ERROR text and the LLM uses the hint to call the vision tool. This
+ * plugin stays out of OpenCode's capability decision and only manages the
+ * side-channel (temp file + hint), so the plugin's behavior stays consistent
+ * with OpenCode's internal mechanism regardless of modelID.
+ *
+ * To steer native-vision LLMs away from the lossy vision tool (which returns
+ * a textual description instead of the image itself), the plugin also
+ * registers a tool.definition hook that overrides the vision tool's
+ * description, recommending the built-in read tool as the primary path.
  *
  * Images are assigned global sequence numbers in paste order:
  *   1st image → image1/xxx.png
  *   2nd image → image2/yyy.png
  *   3rd image → image3/zzz.png
  *
- * Deduplication uses MD5 of the full base64 (not just the first 1024 chars) to avoid
- * hash collisions for visually similar images.
+ * Deduplication uses MD5 of the full base64 (not just the first 1024 chars) to
+ * avoid hash collisions for visually similar images.
  */
 export default (async () => {
   // Ensure the temp root dir exists at plugin startup
   await fs.mkdir(TMP_DIR, { recursive: true }).catch(() => {})
 
   return {
+    "tool.definition": async (input, output) => {
+      if (input.toolID === "vision") {
+        output.description = [
+          "Reads one or more image files via an external VLM API and returns a textual description.",
+          "**Native-vision models should NEVER call this tool — use the built-in `read` tool instead, which returns the actual image attachment directly. This tool exists for text-only models that cannot parse image bytes returned by `read`.**",
+        ].join("\n")
+      }
+    },
     "experimental.chat.messages.transform": async (_input, output) => {
       for (const msg of output.messages) {
         if (msg.info.role !== "user") continue
@@ -92,20 +101,17 @@ export default (async () => {
         const info = msg.info as unknown as { role: string; summary?: boolean }
         if (info.summary) continue
 
-        // Check whether the current model supports native vision
-        const modelID = (msg.info.model?.modelID || "").toLowerCase()
-        if (NATIVE_VISION.test(modelID)) continue
-
-        // Clean up any hints injected by a previous transform run (prevents accumulation)
+        // Clean up any text parts this plugin injected in a previous transform
+        // run. Covers both image hints AND [vision: imageN/hash.ext] placeholders
+        // so re-processing a user message (e.g. after a /model switch) does
+        // not leak stale injections into the prompt.
         for (let i = msg.parts.length - 1; i >= 0; i--) {
           const p = msg.parts[i] as unknown as { type?: string; text?: string }
-          if (p.type === "text" && typeof p.text === "string" &&
-              (p.text.startsWith("[Image #") || p.text.startsWith("[Images auto-saved to:"))) {
+          if (p.type === "text" && typeof p.text === "string" && isPluginInjectedText(p.text)) {
             msg.parts.splice(i, 1)
           }
         }
-
-        const saved: { index: number; name: string; seq: number }[] = []
+        const saved: { name: string; seq: number }[] = []
 
         for (let i = 0; i < msg.parts.length; i++) {
           const part = msg.parts[i]
@@ -144,23 +150,20 @@ export default (async () => {
           // P0-5: record access for LRU eviction
           touchLRU(seqDir)
 
-          saved.push({ index: i, name, seq })
+          saved.push({ name, seq })
         }
 
         if (saved.length === 0) continue
 
-        // Replace image parts with short placeholders to avoid unsupportedParts ERROR
-        for (const { index, name, seq } of saved.toReversed()) {
-          msg.parts.splice(index, 1, {
-            type: "text",
-            text: `[vision: image${seq}/${name}]`,
-          } as { type: "text"; text: string })
-        }
-
-        // Build path hint(s) for the model to use the vision tool
+        // Build path hint(s). Intentionally does NOT guide the LLM to the
+        // vision tool — the tool.definition hook above steers native-vision
+        // models toward the built-in read tool, and the vision tool's own
+        // description recommends read for native-vision models. The hint
+        // just records where the temp copy is, so any model that needs it
+        // can find it.
         const hints = saved.length === 1
-          ? `[Image #${saved[0].seq} auto-saved to ${path.join(TMP_DIR, `image${saved[0].seq}`, saved[0].name)} — use the vision tool to read it]`
-          : `[Images auto-saved to:\n${saved.map((s) => `  ${path.join(TMP_DIR, `image${s.seq}`, s.name)}`).join("\n")}\n— use the vision tool with paths=[...] to read them all at once]`
+          ? `[Image #${saved[0].seq} auto-saved to ${path.join(TMP_DIR, `image${saved[0].seq}`, saved[0].name)}]`
+          : `[Images auto-saved to:\n${saved.map((s) => `  ${path.join(TMP_DIR, `image${s.seq}`, s.name)}`).join("\n")}]`
 
         msg.parts.push({
           type: "text",
