@@ -71,6 +71,13 @@ function isPluginInjectedText(text: string): boolean {
  * registers a tool.definition hook that overrides the vision tool's
  * description, recommending the built-in read tool as the primary path.
  *
+ * Additionally, the system.transform hook injects a capability declaration
+ * into the system prompt when the current model supports native image input.
+ * This prevents path-dependency when switching from a non-vision model (which
+ * used the vision tool) to a native-vision model — without this hint, the
+ * new model would see historical vision tool calls and incorrectly mimic that
+ * behavior instead of directly analyzing images.
+ *
  * Images are assigned global sequence numbers in paste order:
  *   1st image → image1/xxx.png
  *   2nd image → image2/yyy.png
@@ -79,6 +86,8 @@ function isPluginInjectedText(text: string): boolean {
  * Deduplication uses MD5 of the full base64 (not just the first 1024 chars) to
  * avoid hash collisions for visually similar images.
  */
+let currentModelSupportsImage = false
+
 export default (async () => {
   // Ensure the temp root dir exists at plugin startup
   await fs.mkdir(TMP_DIR, { recursive: true }).catch(() => {})
@@ -90,6 +99,19 @@ export default (async () => {
           "Reads one or more image files via an external VLM API and returns a textual description.",
           "**Native-vision models should NEVER call this tool — use the built-in `read` tool instead, which returns the actual image attachment directly. This tool exists for text-only models that cannot parse image bytes returned by `read`.**",
         ].join("\n")
+      }
+    },
+    "experimental.chat.system.transform": async (input, output) => {
+      const model = input.model as unknown as {
+        id?: string
+        capabilities?: { input?: { image?: boolean } }
+      }
+      const hasImage = !!model?.capabilities?.input?.image
+      currentModelSupportsImage = hasImage
+      if (hasImage) {
+        output.system.push(
+          "You have native image input capabilities. You can directly view and analyze images attached to user messages. Do NOT call the `vision` tool to read images sent by the user — analyze them natively instead.",
+        )
       }
     },
     "experimental.chat.messages.transform": async (_input, output) => {
