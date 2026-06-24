@@ -1,4 +1,3 @@
-/// <reference path="../env.d.ts" />
 import { tool } from "@opencode-ai/plugin"
 import { tmpdir } from "os"
 import path from "path"
@@ -36,11 +35,16 @@ function sandboxPath(p: string): string | null {
 }
 
 export default tool({
-  description: `Reads one or more image files and returns a description of their contents.
-Use this when the user pastes images but the current model cannot view images directly.
-The image(s) will have been auto-saved with a path hint like "[Image #N auto-saved to ...]" in the conversation.
-Each paste batch gets a sequential "image{N}/" prefix in the filename for disambiguation.
-For multiple images, use the "paths" parameter.
+  description: `External vision API fallback for image analysis via a remote VLM.
+
+USE ONLY when the active agent lacks native vision capabilities, or when the user
+explicitly asks for a specific external model (OCR, document parsing, a custom
+VLM different from the agent's default). For multimodal agents that already
+support native image input (e.g. M3, GPT-4o, Claude 3+), prefer the agent's
+built-in vision — calling this tool adds latency and cost without quality gain.
+
+Inputs accept absolute image paths. Files are sandboxed to <tmp>/opencode-vision
+to prevent data exfiltration via prompt injection.
 
 Requires VISION_API_KEY and VISION_API_URL.
 VISION_MODEL is required for OpenAI-compatible backends.
