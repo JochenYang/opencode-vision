@@ -83,12 +83,75 @@ vision tool calls the vision API → returns image description
 
 ## Environment Variables
 
-| Variable          | Description                                                        | Example                         |
-| ----------------- | ------------------------------------------------------------------ | ------------------------------- |
-| `VISION_API_KEY`  | Vision API key                                                     | `sk-your-api-key`               |
-| `VISION_API_URL`  | Vision API base URL                                                | `https://your-api-endpoint/v1`  |
-| `VISION_MODEL`    | Vision model name<br>(not needed for MiniMax)                      | `your-vision-model`             |
-| `VISION_API_TYPE` | Optional, force API type<br>`openai` / `minimax`                   | `minimax`                       |
+| Variable                | Description                                                        | Example                         |
+| ----------------------- | ------------------------------------------------------------------ | ------------------------------- |
+| `VISION_MODE`           | Delegation mode: `api` (default) or `subagent`. Auto-detects if unset — uses `api` when `VISION_API_KEY` is set, otherwise falls back to `subagent`. | `subagent` |
+| `VISION_API_KEY`        | Vision API key (required for `api` mode)                           | `sk-your-api-key`               |
+| `VISION_API_URL`        | Vision API base URL (required for `api` mode)                      | `https://your-api-endpoint/v1`  |
+| `VISION_MODEL`          | Vision model name (required for OpenAI-compatible backends; not needed for MiniMax) | `your-vision-model`             |
+| `VISION_API_TYPE`       | Optional, force API type `openai` / `minimax`                      | `minimax`                       |
+| `VISION_SUBAGENT_NAME`  | Subagent identifier for `subagent` mode (default: `image-reader`)  | `image-reader`                  |
+| `VISION_MAX_TOKENS`     | Vision API max response tokens (default: 4096)                     | `4096`                          |
+| `VISION_FETCH_TIMEOUT_MS` | Fetch timeout in ms (default: 60000)                             | `60000`                         |
+| `VISION_MAX_IMAGES`     | LRU image cache cap (default: 200)                                 | `200`                           |
+
+### Delegation Modes
+
+The plugin supports two modes for obtaining image descriptions when the active model lacks vision:
+
+#### `api` mode (default, original behaviour)
+
+The `vision` tool calls an external VLM API directly. Requires `VISION_API_KEY` and `VISION_API_URL`. Supports OpenAI-compatible backends and MiniMax VLM.
+
+```bash
+export VISION_MODE=api
+export VISION_API_KEY="sk-your-api-key"
+export VISION_API_URL="https://your-api-endpoint/v1"
+export VISION_MODEL="your-vision-model"
+```
+
+#### `subagent` mode (new)
+
+The plugin instructs the LLM to delegate image analysis to a vision-capable subagent via the Task tool. No external API key required — the subagent runs on whatever multimodal model is configured in opencode (e.g. `opencode-go/minimax-m3`).
+
+```bash
+export VISION_MODE=subagent
+# Optional: override the subagent name (default: image-reader)
+# export VISION_SUBAGENT_NAME=image-reader
+```
+
+**Setup for subagent mode:**
+
+1. Create a subagent definition at `~/.config/opencode/agent/image-reader.md`:
+
+```markdown
+---
+description: Analyzes images and screenshots using a multimodal model. Use when the main agent cannot view images.
+mode: subagent
+model: opencode-go/minimax-m3
+permission:
+  read: allow
+  glob: allow
+  list: allow
+  bash: deny
+  edit: deny
+---
+
+You are a vision analyst. Read the image at the given path using the `read` tool and describe what you see.
+```
+
+2. Restart opencode. The plugin will automatically:
+   - Save pasted images to `/tmp/opencode-vision/image{N}/`
+   - Inject a system prompt instructing the non-vision model to delegate
+   - Inject a path hint naming the subagent
+
+#### Auto-fallback
+
+When `VISION_MODE` is unset, the plugin uses:
+- `api` mode if `VISION_API_KEY` is present
+- `subagent` mode otherwise
+
+This means the plugin works out-of-the-box without any external credentials, as long as a vision-capable subagent is configured.
 
 > `VISION_API_URL`: OpenAI-compatible backends auto-append `/chat/completions`; MiniMax auto-detects and uses `/v1/coding_plan/vlm`.
 >

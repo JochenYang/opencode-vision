@@ -42,10 +42,37 @@ function isPluginInjectedText(text: string): boolean {
   if (!text) return false
   return (
     /^\[Image #\d+ auto-saved to /.test(text) ||
+    /^\[Image #\d+ \w+\.\w+ auto-saved to /.test(text) ||
     /^\[Images auto-saved to:/.test(text) ||
+    /^\[Images \(\d+\) auto-saved to:/.test(text) ||
     /^\[vision: image\d+\/[\w-]+\.[\w]+]$/.test(text)
   )
 }
+
+// ── Delegation mode ──
+//
+// VISION_MODE controls how non-vision models obtain image descriptions:
+//   "api"      (default, original) — the vision tool calls an external VLM
+//              API (VISION_API_KEY + VISION_API_URL). This is the upstream
+//              behaviour and is left untouched.
+//   "subagent" — the plugin instructs the LLM to delegate image analysis to
+//              the @image-reader subagent via the Task tool. No external API
+//              key is required; the subagent runs on whatever vision-capable
+//              model is configured in opencode (e.g. opencode-go/minimax-m3).
+//
+// Auto-fallback: when VISION_MODE is unset, the plugin uses "api" mode if
+// VISION_API_KEY is present, otherwise it falls back to "subagent" mode so
+// the plugin works out-of-the-box without any external credentials.
+//
+// VISION_SUBAGENT_NAME overrides the subagent identifier injected into the
+// system prompt and path hint (default: "image-reader").
+const VISION_MODE_RAW = (process.env["VISION_MODE"] || "").toLowerCase()
+const VISION_SUBAGENT_NAME = process.env["VISION_SUBAGENT_NAME"] || "image-reader"
+const hasApiKey = !!process.env["VISION_API_KEY"]
+const VISION_MODE: "api" | "subagent" =
+  VISION_MODE_RAW === "subagent" ? "subagent" :
+  VISION_MODE_RAW === "api" ? "api" :
+  hasApiKey ? "api" : "subagent"
 
 /**
  * Hook runs just before messages are sent to the model. For every user message
@@ -100,6 +127,9 @@ export default (async () => {
           "**Native-vision models should NEVER call this tool — use the built-in `read` tool instead, which returns the actual image attachment directly. This tool exists for text-only models that cannot parse image bytes returned by `read`.**",
         ].join("\n")
       }
+      // In subagent mode, the vision tool is typically absent (no VISION_API_KEY).
+      // OpenCode silently ignores tool.definition calls for tools that don't
+      // exist, so this hook is a no-op in that case — no extra guard needed.
     },
     "experimental.chat.system.transform": async (input, output) => {
       const model = input.model as unknown as {
@@ -111,6 +141,10 @@ export default (async () => {
       if (hasImage) {
         output.system.push(
           "You have native image input capabilities. You can directly view and analyze images attached to user messages. Do NOT call the `vision` tool to read images sent by the user — analyze them natively instead.",
+        )
+      } else if (VISION_MODE === "subagent") {
+        output.system.push(
+          `IMPORTANT: This model does NOT support image input. When a user attaches an image or screenshot, OpenCode will save it to a temp directory and inject a path hint like '[Image #N auto-saved to /tmp/opencode-vision/imageN/hash.png]'. You MUST delegate image analysis to the @${VISION_SUBAGENT_NAME} subagent via the Task tool (subagent_type="${VISION_SUBAGENT_NAME}", prompt="Read and describe the image at <path>"). The @${VISION_SUBAGENT_NAME} subagent runs on a multimodal model (e.g. opencode-go/minimax-m3) that can read images. Never attempt to read images directly with the \`read\` tool — it will fail with 'model does not support image input'.`,
         )
       }
     },
@@ -177,15 +211,18 @@ export default (async () => {
 
         if (saved.length === 0) continue
 
-        // Build path hint(s). Intentionally does NOT guide the LLM to the
-        // vision tool — the tool.definition hook above steers native-vision
-        // models toward the built-in read tool, and the vision tool's own
-        // description recommends read for native-vision models. The hint
-        // just records where the temp copy is, so any model that needs it
-        // can find it.
+        // Build path hint(s). The hint records where the temp copy lives so
+        // any model that needs it can find it. In "api" mode the hint is
+        // neutral (the vision tool's own description handles routing); in
+        // "subagent" mode the hint explicitly names the @image-reader
+        // subagent so the LLM knows to delegate via the Task tool.
+        const hintSuffix = VISION_MODE === "subagent"
+          ? ` — use @${VISION_SUBAGENT_NAME} subagent via Task tool to analyze it if you cannot view images natively]`
+          : `]`
+
         const hints = saved.length === 1
-          ? `[Image #${saved[0].seq} auto-saved to ${path.join(TMP_DIR, `image${saved[0].seq}`, saved[0].name)}]`
-          : `[Images auto-saved to:\n${saved.map((s) => `  ${path.join(TMP_DIR, `image${s.seq}`, s.name)}`).join("\n")}]`
+          ? `[Image #${saved[0].seq} ${saved[0].name} auto-saved to ${path.join(TMP_DIR, `image${saved[0].seq}`, saved[0].name)}${hintSuffix}`
+          : `[Images (${saved.length}) auto-saved to:\n${saved.map((s) => `  ${path.join(TMP_DIR, `image${s.seq}`, s.name)}`).join("\n")}${hintSuffix}`
 
         msg.parts.push({
           type: "text",
