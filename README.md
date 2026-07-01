@@ -75,19 +75,79 @@ vision 工具：
 
 ## 环境变量
 
-| 变量               | 说明                                   | 默认值 / 示例                                                        |
-| ------------------ | -------------------------------------- | ------------------------------------------------------------- |
-| `VISION_API_KEY`   | 视觉 API 的密钥                        | `sk-your-api-key`                                              |
-| `VISION_API_URL`   | 视觉 API 的基础地址                     | `https://your-api-endpoint/v1`                                 |
-| `VISION_MODEL`     | 视觉模型名称<br>（MiniMax 无需设置）    | `your-vision-model`                                            |
-| `VISION_API_TYPE`  | 可选，强制指定 API 类型<br>`openai` / `minimax` | `minimax`                                           |
-| `VISION_MAX_TOKENS` | 可选，视觉 API 返回的最大 token 数    | `4096`                                                          |
-| `VISION_FETCH_TIMEOUT_MS` | 可选，视觉 API fetch 超时毫秒数 | `60000`                                                         |
-| `VISION_MAX_IMAGES` | 可选，LRU 保留的最大图片数            | `200`                                                           |
+| 变量                     | 说明                                                              | 默认值 / 示例                              |
+| ------------------------ | ----------------------------------------------------------------- | ------------------------------------------- |
+| `VISION_MODE`            | 委派模式：`api`（默认）或 `subagent`。未设置时自动检测——有 `VISION_API_KEY` 则用 `api`，否则回退到 `subagent` | `subagent`                                  |
+| `VISION_API_KEY`         | 视觉 API 的密钥（`api` 模式必需）                                 | `sk-your-api-key`                           |
+| `VISION_API_URL`         | 视觉 API 的基础地址（`api` 模式必需）                             | `https://your-api-endpoint/v1`              |
+| `VISION_MODEL`           | 视觉模型名称<br>（MiniMax 无需设置）                              | `your-vision-model`                         |
+| `VISION_API_TYPE`        | 可选，强制指定 API 类型<br>`openai` / `minimax`                   | `minimax`                                   |
+| `VISION_SUBAGENT_NAME`   | `subagent` 模式下的子代理标识符（默认 `image-reader`）            | `image-reader`                              |
+| `VISION_MAX_TOKENS`      | 可选，视觉 API 返回的最大 token 数                                | `4096`                                      |
+| `VISION_FETCH_TIMEOUT_MS` | 可选，视觉 API fetch 超时毫秒数                                 | `60000`                                     |
+| `VISION_MAX_IMAGES`      | 可选，LRU 保留的最大图片数                                        | `200`                                       |
 
 > `VISION_API_URL`：OpenAI 兼容接口会自动补全 `/chat/completions`；MiniMax 会自动使用 `/v1/coding_plan/vlm` 端点。
 >
 > `VISION_API_TYPE`：默认自动检测（URL 含 `minimax` 自动切换），设此变量可显式指定。
+
+### 委派模式
+
+插件支持两种方式为非多模态模型获取图片描述：
+
+#### `api` 模式（默认，原有行为）
+
+`vision` 工具直接调用外部 VLM API。需配置 `VISION_API_KEY` 和 `VISION_API_URL`。支持 OpenAI 兼容接口和 MiniMax VLM。
+
+```bash
+export VISION_MODE=api
+export VISION_API_KEY="sk-your-api-key"
+export VISION_API_URL="https://your-api-endpoint/v1"
+export VISION_MODEL="your-vision-model"
+```
+
+#### `subagent` 模式（新增）
+
+插件引导 LLM 通过 Task tool 将图片分析委托给一个具备视觉能力的子代理。无需外部 API 密钥——子代理使用 opencode 中配置的多模态模型（如 `opencode-go/minimax-m3`）。
+
+```bash
+export VISION_MODE=subagent
+# 可选：覆盖子代理名称（默认 image-reader）
+# export VISION_SUBAGENT_NAME=image-reader
+```
+
+**`subagent` 模式设置步骤：**
+
+1. 在 `~/.config/opencode/agent/image-reader.md` 创建子代理定义：
+
+```markdown
+---
+description: Analyzes images and screenshots using a multimodal model. Use when the main agent cannot view images.
+mode: subagent
+model: opencode-go/minimax-m3
+permission:
+  read: allow
+  glob: allow
+  list: allow
+  bash: deny
+  edit: deny
+---
+
+You are a vision analyst. Read the image at the given path using the `read` tool and describe what you see.
+```
+
+2. 重启 opencode。插件会自动：
+   - 将粘贴的图片保存到 `/tmp/opencode-vision/image{N}/`
+   - 注入系统提示引导非视觉模型委托子代理
+   - 注入路径提示指名子代理
+
+#### 自动回退
+
+当 `VISION_MODE` 未设置时，插件自动判断：
+- 有 `VISION_API_KEY` → 使用 `api` 模式
+- 无 `VISION_API_KEY` → 回退到 `subagent` 模式
+
+这意味着只要配置了视觉子代理，插件无需任何外部凭据即可开箱即用。
 
 ### 示例一：OpenAI 兼容接口（如阿里云 DashScope 通义千问）
 
