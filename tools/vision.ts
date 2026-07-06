@@ -5,27 +5,24 @@ import path from "path"
 const TMP_DIR = path.join(tmpdir(), "opencode-vision")
 const TMP_DIR_RESOLVED = path.resolve(TMP_DIR)
 
-// 单图最大 50MB，防止恶意大文件 OOM
+// Cap each image to prevent malicious large files from exhausting memory.
 const MAX_FILE_SIZE = 50 * 1024 * 1024
 
-// 合法的图片扩展名（白名单）
+// Allowlist image extensions accepted by the external VLM path.
 const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"])
 
 /**
- * 路径沙箱：只允许读取 TMP_DIR 下的图片文件
- * 防止 vision 工具被 prompt injection 诱导读取 /etc/passwd 等敏感文件
- * 并 base64 发给外部 VISION_API_URL 服务端造成数据外泄
+ * Path sandbox: only read image files created under TMP_DIR.
+ * This prevents prompt injection from exfiltrating sensitive local files by
+ * base64-uploading them to the external VISION_API_URL backend.
  */
 function sandboxPath(p: string): string | null {
-  // 1. 解析并规范化路径
   const resolved = path.resolve(p)
 
-  // 2. 必须位于 TMP_DIR 之下（防止任意路径读取）
   if (!resolved.startsWith(TMP_DIR_RESOLVED + path.sep) && resolved !== TMP_DIR_RESOLVED) {
     return null
   }
 
-  // 3. 必须有合法图片扩展名
   const ext = path.extname(resolved).toLowerCase()
   if (!IMAGE_EXTS.has(ext)) {
     return null
@@ -63,15 +60,22 @@ Override with VISION_API_TYPE=openai|minimax.`,
       .string()
       .describe("Optional specific question about the image(s)")
       .optional(),
+    __nativeVisionBlocked: tool.schema
+      .boolean()
+      .describe("Internal guard set by vision-helper when the active model has native image input.")
+      .optional(),
   },
   async execute(args) {
+    if (args.__nativeVisionBlocked) {
+      return "Error: vision is disabled for the current native-vision model. Analyze the attached image directly, or use the built-in read tool for local image files. The external vision API is only for text-only models."
+    }
+
     const allPaths: string[] = []
     if (args.paths && args.paths.length > 0) {
       allPaths.push(...args.paths)
     } else if (args.path) {
       allPaths.push(args.path)
     }
-    // 过滤空字符串 / null / 非字符串
     const validInputPaths = allPaths.filter((p): p is string => typeof p === "string" && p.length > 0)
     if (validInputPaths.length === 0) return "Error: no image path provided"
 
@@ -79,11 +83,10 @@ Override with VISION_API_TYPE=openai|minimax.`,
     const resolved: string[] = []
     const rejected: string[] = []
     for (const p of validInputPaths) {
-      // 三层路径尝试，每层都过沙箱
       const candidates = [
-        p,                                       // 1. 绝对路径直传
-        path.join(TMP_DIR, p),                   // 2. TMP_DIR/{path}
-        path.join(TMP_DIR, path.basename(p)),    // 3. TMP_DIR/{basename} (向后兼容)
+        p,
+        path.join(TMP_DIR, p),
+        path.join(TMP_DIR, path.basename(p)),
       ]
       let found: string | null = null
       for (const candidate of candidates) {
@@ -91,7 +94,6 @@ Override with VISION_API_TYPE=openai|minimax.`,
         if (!safe) continue
         const file = Bun.file(safe)
         if (!(await file.exists())) continue
-        // 大小限制
         if (file.size > MAX_FILE_SIZE) {
           rejected.push(`${safe} (too large: ${(file.size / 1024 / 1024).toFixed(1)}MB > ${MAX_FILE_SIZE / 1024 / 1024}MB)`)
           found = null

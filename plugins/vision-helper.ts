@@ -114,6 +114,18 @@ const VISION_MODE: "api" | "subagent" =
  * avoid hash collisions for visually similar images.
  */
 let currentModelSupportsImage = false
+const sessionImageSupport = new Map<string, boolean>()
+
+function modelSupportsImage(sessionID?: string): boolean {
+  return sessionID ? (sessionImageSupport.get(sessionID) ?? currentModelSupportsImage) : currentModelSupportsImage
+}
+
+function nativeVisionBlockArgs() {
+  return {
+    paths: [],
+    __nativeVisionBlocked: true,
+  }
+}
 
 export default (async () => {
   // Ensure the temp root dir exists at plugin startup
@@ -122,14 +134,25 @@ export default (async () => {
   return {
     "tool.definition": async (input, output) => {
       if (input.toolID === "vision") {
-        output.description = [
-          "Reads one or more image files via an external VLM API and returns a textual description.",
-          "**Native-vision models should NEVER call this tool — use the built-in `read` tool instead, which returns the actual image attachment directly. This tool exists for text-only models that cannot parse image bytes returned by `read`.**",
-        ].join("\n")
+        output.description = modelSupportsImage()
+          ? [
+              "DISABLED for the current model: this model has native image input.",
+              "Do NOT call this tool for user-attached images. Analyze the image directly from the message, or use the built-in `read` tool for local image files.",
+              "This external VLM fallback exists only for text-only models that cannot parse image attachments.",
+            ].join("\n")
+          : [
+              "Reads one or more image files via an external VLM API and returns a textual description.",
+              "Use ONLY for text-only models that cannot parse image attachments. Native-vision models should analyze user-attached images directly or use the built-in `read` tool for local image files.",
+            ].join("\n")
       }
       // In subagent mode, the vision tool is typically absent (no VISION_API_KEY).
       // OpenCode silently ignores tool.definition calls for tools that don't
       // exist, so this hook is a no-op in that case — no extra guard needed.
+    },
+    "tool.execute.before": async (input, output) => {
+      if (input.tool === "vision" && modelSupportsImage(input.sessionID)) {
+        output.args = nativeVisionBlockArgs()
+      }
     },
     "experimental.chat.system.transform": async (input, output) => {
       const model = input.model as unknown as {
@@ -138,6 +161,7 @@ export default (async () => {
       }
       const hasImage = !!model?.capabilities?.input?.image
       currentModelSupportsImage = hasImage
+      if (input.sessionID) sessionImageSupport.set(input.sessionID, hasImage)
       if (hasImage) {
         output.system.push(
           "You have native image input capabilities. You can directly view and analyze images attached to user messages. Do NOT call the `vision` tool to read images sent by the user — analyze them natively instead.",
@@ -167,6 +191,9 @@ export default (async () => {
             msg.parts.splice(i, 1)
           }
         }
+
+        if (modelSupportsImage()) continue
+
         const saved: { name: string; seq: number }[] = []
 
         for (let i = 0; i < msg.parts.length; i++) {
