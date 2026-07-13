@@ -190,10 +190,13 @@ async function callOpenAI(apiKey: string, baseUrl: string, resolved: string[], q
       signal: controller.signal,
     })
   } catch (err) {
-    if ((err as Error).name === "AbortError") {
+    // H4 fix: catch-all for network errors (DNS, ECONNREFUSED, TLS, etc.)
+    // instead of re-throwing and crashing the entire turn.
+    const e = err as Error
+    if (e.name === "AbortError") {
       return `Vision API error: request timed out after ${FETCH_TIMEOUT_MS}ms`
     }
-    throw err
+    return `Vision API error: ${e.message || "network request failed"}`
   } finally {
     clearTimeout(timer)
   }
@@ -203,7 +206,15 @@ async function callOpenAI(apiKey: string, baseUrl: string, resolved: string[], q
     return `Vision API error (${response.status}): ${text}`
   }
 
-  const data = (await response.json()) as { choices: { message: { content: string } }[] }
+  // L2 fix: safe JSON parse — guard against non-JSON error responses (e.g. HTML
+  // error pages from load balancers) that would throw and crash the turn.
+  let data: { choices?: { message?: { content?: string } }[] }
+  try {
+    data = await response.json()
+  } catch {
+    const text = truncate(await response.text().catch(() => "(unreadable body)"))
+    return `Vision API error: response is not valid JSON — ${text}`
+  }
   return data.choices?.[0]?.message?.content ?? "No description returned."
 }
 
@@ -244,29 +255,44 @@ async function callMiniMax(apiKey: string, baseUrl: string, resolved: string[], 
         signal: controller.signal,
       })
     } catch (err) {
-      if ((err as Error).name === "AbortError") {
-        return `MiniMax Vision API error: request timed out after ${FETCH_TIMEOUT_MS}ms`
+      // H4 fix: catch-all for network errors; H3 fix: collect error and continue
+      const e = err as Error
+      if (e.name === "AbortError") {
+        descriptions.push(`[Error for ${path.basename(filePath)}]: request timed out after ${FETCH_TIMEOUT_MS}ms`)
+      } else {
+        descriptions.push(`[Error for ${path.basename(filePath)}]: ${e.message || "network request failed"}`)
       }
-      throw err
+      continue
     } finally {
       clearTimeout(timer)
     }
 
+    // H3 fix: collect per-image errors instead of returning early
     if (!response.ok) {
       const text = truncate(await response.text())
-      return `MiniMax Vision API error (${response.status}): ${text}`
+      descriptions.push(`[Error for ${path.basename(filePath)}]: API ${response.status} — ${text}`)
+      continue
     }
 
-    const data = (await response.json()) as MiniMaxVlmResponse
+    // L2 fix: safe JSON parse for MiniMax responses
+    let data: MiniMaxVlmResponse
+    try {
+      data = await response.json()
+    } catch {
+      descriptions.push(`[Error for ${path.basename(filePath)}]: response is not valid JSON`)
+      continue
+    }
 
     // MiniMax wraps errors in base_resp even on HTTP 200
     if (data.base_resp?.status_code && data.base_resp.status_code !== 0) {
-      return `MiniMax Vision API error: ${data.base_resp.status_msg || `status_code ${data.base_resp.status_code}`}`
+      descriptions.push(`[Error for ${path.basename(filePath)}]: ${data.base_resp.status_msg || `status_code ${data.base_resp.status_code}`}`)
+      continue
     }
 
     descriptions.push(data.content || "No description returned.")
   }
 
+  if (descriptions.length === 0) return "Error: no images were processed."
   if (descriptions.length === 1) return descriptions[0]
   return descriptions.map((d, i) => `--- Image ${i + 1} ---\n${d}`).join("\n\n")
 }
