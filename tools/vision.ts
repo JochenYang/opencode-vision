@@ -1,6 +1,7 @@
 import { tool } from "@opencode-ai/plugin"
 import { tmpdir } from "os"
 import path from "path"
+import { promises as fs } from "fs"
 
 const TMP_DIR = path.join(tmpdir(), "opencode-vision")
 const TMP_DIR_RESOLVED = path.resolve(TMP_DIR)
@@ -10,6 +11,19 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024
 
 // Allowlist image extensions accepted by the external VLM path.
 const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"])
+
+function mimeType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase()
+  switch (ext) {
+    case ".png": return "image/png"
+    case ".jpg":
+    case ".jpeg": return "image/jpeg"
+    case ".gif": return "image/gif"
+    case ".webp": return "image/webp"
+    case ".bmp": return "image/bmp"
+    default: return "image/png"
+  }
+}
 
 /**
  * Path sandbox: only read image files created under TMP_DIR.
@@ -92,10 +106,14 @@ Override with VISION_API_TYPE=openai|minimax.`,
       for (const candidate of candidates) {
         const safe = sandboxPath(candidate)
         if (!safe) continue
-        const file = Bun.file(safe)
-        if (!(await file.exists())) continue
-        if (file.size > MAX_FILE_SIZE) {
-          rejected.push(`${safe} (too large: ${(file.size / 1024 / 1024).toFixed(1)}MB > ${MAX_FILE_SIZE / 1024 / 1024}MB)`)
+        let stat: { size: number }
+        try {
+          stat = await fs.stat(safe)
+        } catch {
+          continue
+        }
+        if (stat.size > MAX_FILE_SIZE) {
+          rejected.push(`${safe} (too large: ${(stat.size / 1024 / 1024).toFixed(1)}MB > ${MAX_FILE_SIZE / 1024 / 1024}MB)`)
           found = null
           break
         }
@@ -167,10 +185,9 @@ async function callOpenAI(apiKey: string, baseUrl: string, resolved: string[], q
   }
 
   for (const filePath of resolved) {
-    const file = Bun.file(filePath)
-    const mime = file.type || "image/png"
-    const buffer = await file.arrayBuffer()
-    const base64 = Buffer.from(buffer).toString("base64")
+    const buffer = await fs.readFile(filePath)
+    const mime = mimeType(filePath)
+    const base64 = buffer.toString("base64")
     content.push({ type: "image_url", image_url: { url: `data:${mime};base64,${base64}` } })
   }
 
@@ -235,10 +252,9 @@ async function callMiniMax(apiKey: string, baseUrl: string, resolved: string[], 
 
   const descriptions: string[] = []
   for (const filePath of resolved) {
-    const file = Bun.file(filePath)
-    const mime = file.type || "image/png"
-    const buffer = await file.arrayBuffer()
-    const base64 = Buffer.from(buffer).toString("base64")
+    const buffer = await fs.readFile(filePath)
+    const mime = mimeType(filePath)
+    const base64 = buffer.toString("base64")
     const imageUrl = `data:${mime};base64,${base64}`
 
     const prompt = question || "Please describe this image in detail"
