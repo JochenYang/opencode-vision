@@ -255,12 +255,15 @@ export default (async () => {
           const seqDir = path.join(TMP_DIR, `image${seq}`)
           const filePath = path.join(seqDir, name)
           // P1-3: write failures degrade to a skip (don't throw, don't break the turn)
-          if (!(await Bun.file(filePath).exists())) {
+          let fileExists = false
+          try {
+            await fs.access(filePath)
+            fileExists = true
+          } catch {}
+          if (!fileExists) {
             try {
-              // H2 fix: ensure seqDir exists before writing — Bun.write may not
-              // auto-create intermediate directories depending on version.
               await fs.mkdir(seqDir, { recursive: true }).catch(() => {})
-              await Bun.write(filePath, Buffer.from(base64, "base64"))
+              await fs.writeFile(filePath, Buffer.from(base64, "base64"))
             } catch (err) {
               console.error(`[vision-helper] Failed to write ${filePath}:`, err)
               continue
